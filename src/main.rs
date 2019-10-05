@@ -123,13 +123,12 @@ fn main() {
                     println!("{}", file);
                 }
 
-                process::exit(0);
+                process::exit(1);
 
             }
             
         },
         None => {
-            eprintln!("Valid subcommands:");
             list_methods(enum_dir)
                 .expect("There was a problem printing the subcommands: {}");
 
