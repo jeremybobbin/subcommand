@@ -1,10 +1,15 @@
 use std::{
     io,
+    io::Write,
+    ffi,
+    fmt,
+    error::Error,
     convert::{
         AsRef,
     },
     env,
     fs,
+    iter::Iterator,
     path::{
         self,
         Path,
@@ -17,99 +22,121 @@ use std::{
     },
 };
 
-struct Builder {
-
+#[derive(Debug)]
+enum MethodError {
+    IO(io::Error),
+    String(ffi::OsString),
 }
 
-struct Config {
-    directory: PathBuf,
-    subcommand: String,
-    menu: bool,
-    cache: bool,
-    strict: bool
-}
-
-fn list_methods<P: AsRef<Path>>(enum_dir: P) -> io::Result<()> {
-    for dir in fs::read_dir(enum_dir)? {
-
-        let method = dir?
-            .file_name()
-            .into_string()
-            .unwrap();
-
-        println!("{}", method );
-    }
-
-    Ok(())
-}
-
-fn parse_args() -> Option<Config> {
-    let mut args = env::args();
-
-    let script = args.next()
-        .expect("Pass script as first argument, and subcommand as second");
-
-
-    let path = path::PathBuf::from(script);
-    let name = path.file_name();
-    let enum_dir = format!("{}.d", path.display());
-
-    let subcommand = args.next() {
-        Some(cmd) => cmd,
-        None => {
-            eprintln!("Please use one of the following subcommands:");
-            list_methods(enum_dir);
-            process::exit(1);
-        },
-    };
-
-    let mut cache = false;
-    let mut menu = false;
-    let mut strict = false;
-    
-    let mut rest: Vec<String> = Vec::new();
-
-    if let Some(arg) = args.next() {
-        if args.starts_with("-") {
-            let mut chars = arg[1..].chars();
-
-            while let Some(c) = chars.next() {
-                match c {
-                    'd' => menu = true,
-                    's' => strict = true,
-                    'c' => cache = true,
-                    _ => panic!("Unrecognized.."),
-
-                }
-            }
-
-        } else {
-            rest.push(arg)
+impl fmt::Display for MethodError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            MethodError::IO(err) => err.fmt(f),
+            MethodError::String(_) => write!(f, "Problem converting text to printable string...")
         }
     }
+}
 
-    if strict || cache {
-        menu = true;
+impl Error for MethodError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            MethodError::IO(err) => Some(err),
+            MethodError::String(_) => None
+        }
+    }
+}
+
+impl From<ffi::OsString> for MethodError {
+    fn from(error: ffi::OsString) -> Self {
+	MethodError::String(error)
+    }
+}
+
+impl From<io::Error> for MethodError {
+    fn from(error: io::Error) -> Self {
+	MethodError::IO(error)
+    }
+}
+
+
+fn methods<P: AsRef<Path>>(enum_dir: P) -> io::Result<impl Iterator<Item=Result<String, MethodError>>> {
+
+    fn to_string(result: io::Result<fs::DirEntry>) -> Result<String, MethodError>  {
+        Ok(result?.file_name().into_string()?)
     }
 
+    let methods = fs::read_dir(enum_dir)?
+        .map(to_string);
 
+    Ok(methods)
+}
 
-    //if subcommand == "-l" {
-    //    list_methods(enum_dir);
-    //    process::exit(0);
-    //}
+fn list_methods<P: AsRef<Path>>(enum_dir: P) -> Result<(), MethodError> {
+    let mut stdout = io::stdout();
 
-    //let to_execute = format!("{}/{}", enum_dir, subcommand);
-    
-    None
+    for method in methods(enum_dir)? {
+        writeln!(&mut stdout, "{}", method?);
+    }
+    Ok(())
 }
 
 fn main() {
 
-    //let status = Command::new(to_execute)
-    //    .stdin(Stdio::inherit())
-    //    .stdout(Stdio::inherit())
-    //    .args(&args[3..])
-    //    .status()
-    //    .expect("FAIL");
+    let mut args = env::args()
+        .skip(1);
+
+    // Since this is an 'interpreter', the path command that's run is passed as the second
+    // argument.
+    let invoker = args.next()
+        .expect("Pass script as first argument, and subcommand as second");
+
+
+    let path = path::PathBuf::from(invoker);
+    let name = path.file_name();
+    let enum_dir = format!("{}.d", path.display());
+
+    let mut command = match args.next() {
+        Some(sub) => {
+            let possible: Vec<String> = methods(&enum_dir)
+                .expect("There was a problem reading the subcommand directory")
+                .filter_map(Result::ok)
+                .filter(|file| file.starts_with(&sub))
+                .collect();
+
+            if possible.len() > 1 {
+                eprintln!("Ambiguous subcommand. Possible matches:");
+                for file in possible {
+                    println!("{}", file);
+                }
+                process::exit(0);
+            }
+            
+            let name = possible.get(0)
+                .expect("Invalid command.");
+
+            Command::new(format!("{}/{}", enum_dir, name))
+        },
+        None => {
+            eprintln!("Valid subcommands:");
+            list_methods(enum_dir)
+                .expect("There was a problem printing the subcommands: {}");
+
+            process::exit(0);
+        }
+    };
+
+    command.stdin(Stdio::inherit())
+        .stdout(Stdio::inherit());
+
+    while let Some(arg) = args.next() {
+        command.arg(arg);
+    }
+
+    let status = command
+        .status()
+        .ok()
+        .and_then(|s| s.code())
+        .unwrap_or(1);
+
+    process::exit(status);
 }
