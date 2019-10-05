@@ -1,6 +1,7 @@
 use std::{
     io,
     io::Write,
+    os::unix::process::CommandExt,
     ffi,
     fmt,
     error::Error,
@@ -103,18 +104,29 @@ fn main() {
                 .filter(|file| file.starts_with(&sub))
                 .collect();
 
-            if possible.len() > 1 {
+            if let Some(name) = possible.iter().find(|&f| f == &sub) {
+
+                Command::new(format!("{}/{}", enum_dir, name))
+
+            } else if possible.len() == 1 {
+
+                let name = possible.get(0)
+                    .unwrap();
+
+                Command::new(format!("{}/{}", enum_dir, name))
+                
+            } else {
+
                 eprintln!("Ambiguous subcommand. Possible matches:");
+
                 for file in possible {
                     println!("{}", file);
                 }
+
                 process::exit(0);
+
             }
             
-            let name = possible.get(0)
-                .expect("Invalid command.");
-
-            Command::new(format!("{}/{}", enum_dir, name))
         },
         None => {
             eprintln!("Valid subcommands:");
@@ -132,11 +144,8 @@ fn main() {
         command.arg(arg);
     }
 
-    let status = command
-        .status()
-        .ok()
-        .and_then(|s| s.code())
-        .unwrap_or(1);
+    command.exec();
 
-    process::exit(status);
+    println!("Trouble forking command");
+    process::exit(1);
 }
