@@ -62,11 +62,21 @@ impl From<io::Error> for MethodError {
 
 fn methods<P: AsRef<Path>>(enum_dir: P) -> io::Result<impl Iterator<Item=Result<String, MethodError>>> {
 
-    fn to_string(result: io::Result<fs::DirEntry>) -> Result<String, MethodError>  {
+    fn to_string(result: io::Result<fs::DirEntry>) -> Result<String, MethodError> {
         Ok(result?.file_name().into_string()?)
     }
 
+    fn file_only(entry_result: &io::Result<fs::DirEntry>) -> bool {
+        match entry_result {
+            Ok(entry) => entry.file_type()
+                .map(|t| t.is_file())
+                .unwrap_or(true),
+            Err(_) => true
+        }
+    }
+
     let methods = fs::read_dir(enum_dir)?
+        .filter(file_only)
         .map(to_string);
 
     Ok(methods)
@@ -78,6 +88,7 @@ fn list_methods<P: AsRef<Path>>(enum_dir: P) -> Result<(), MethodError> {
     for method in methods(enum_dir)? {
         writeln!(&mut stdout, "{}", method?);
     }
+
     Ok(())
 }
 
