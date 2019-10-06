@@ -102,10 +102,14 @@ fn main() {
     let invoker = args.next()
         .expect("Pass script as first argument, and subcommand as second");
 
+    // prints the real command to execute
+    let print = env::var("SUBCOMMAND_PRINT").is_ok();
 
     let path = path::PathBuf::from(invoker);
     let name = path.file_name();
     let enum_dir = format!("{}.d", path.display());
+
+    let mut result = Vec::new();
 
     let mut command = match args.next() {
         Some(sub) => {
@@ -115,47 +119,49 @@ fn main() {
                 .filter(|file| file.starts_with(&sub))
                 .collect();
 
-            if let Some(name) = possible.iter().find(|&f| f == &sub) {
-
-                Command::new(format!("{}/{}", enum_dir, name))
-
+            let name = if let Some(name) = possible.iter().find(|&f| f == &sub)  {
+                name
             } else if possible.len() == 1 {
-
-                let name = possible.get(0)
-                    .unwrap();
-
-                Command::new(format!("{}/{}", enum_dir, name))
-                
+                possible.get(0)
+                    .unwrap()
             } else {
-
                 eprintln!("Ambiguous subcommand. Possible matches:");
-
                 for file in possible {
                     println!("{}", file);
                 }
 
                 process::exit(1);
+            };
 
-            }
-            
+            format!("{}/{}", enum_dir, name)
         },
         None => {
             list_methods(enum_dir)
                 .expect("There was a problem printing the subcommands: {}");
 
-            process::exit(0);
+            process::exit(7);
         }
     };
 
-    command.stdin(Stdio::inherit())
-        .stdout(Stdio::inherit());
+    if print {
+        result.push(command);
+        while let Some(arg) = args.next() {
+            result.push(arg);
+        }
+        println!("{}", result.join(" "));
+    } else {
+        let mut command = Command::new(command);
 
-    while let Some(arg) = args.next() {
-        command.arg(arg);
+        while let Some(arg) = args.next() {
+            command.arg(arg);
+        }
+
+        command.stdin(Stdio::inherit())
+            .stdout(Stdio::inherit());
+
+        command.exec();
+
+        println!("Trouble forking command");
+        process::exit(1);
     }
-
-    command.exec();
-
-    println!("Trouble forking command");
-    process::exit(1);
 }
