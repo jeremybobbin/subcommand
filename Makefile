@@ -1,12 +1,42 @@
-SRC = $(shell find src/ -type f)
-NAME = $(shell  pwd | xargs -n1 basename)
-EXECUTIBLE = target/release/${NAME}
-TARGET = /usr/bin
+# CargoMake by NeoSmart Technologies
+# Written and maintained by Mahmoud Al-Qudsi <mqudsi@neosmart.net>
+# Released under the MIT public license
+# Obtain updates from https://github.com/neosmart/CargoMake
 
-build: ${EXECUTIBLE}
+COLOR ?= auto # Valid COLOR options: {always, auto, never}
+CARGO = cargo --color $(COLOR)
 
-${EXECUTIBLE}: ${SRC}
-	cargo build --release
+.PHONY: all bench build check clean doc install publish run test update
+
+all: build
+
+bench:
+	@$(CARGO) bench
+
+build:
+	@$(CARGO) build
+
+check:
+	@$(CARGO) check
+
+clean:
+	@$(CARGO) clean
+
+doc:
+	@$(CARGO) doc
 
 install: build
-	cp ${EXECUTIBLE} ${TARGET}
+	@$(CARGO) install --path . --force
+
+publish:
+	@$(CARGO) publish
+
+run: build
+	@$(CARGO) run
+
+test: build
+	@$(CARGO) test
+
+update:
+	@$(CARGO) update
+
